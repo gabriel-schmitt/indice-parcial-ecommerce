@@ -18,6 +18,7 @@
 
 #define TAM_LINHA 512
 #define N_CAMPOS_CSV 9
+#define MAX_EVENTOS 200000
 
 typedef struct {
   int id;
@@ -107,23 +108,158 @@ int ler_evento(FILE *f, Evento *e) {
   return 0;
 }
 
-int main(void) {
-  FILE *csv;
+int ler_texto(const char *rotulo, char *destino, int tam) {
+  char buffer[256];
+
+  printf("%s", rotulo);
+  fflush(stdout);
+  if (fgets(buffer, sizeof(buffer), stdin) == NULL) return 0;
+
+  buffer[strcspn(buffer, "\r\n")] = '\0';
+  if (buffer[0] == '\0') return 0;
+
+  strncpy(destino, buffer, tam - 1);
+  destino[tam - 1] = '\0';
+  return 1;
+}
+
+typedef struct {
+  Produto p;
+  int ordem;
+} Ocorrencia;
+
+/* desempata pela ordem no csv porque o qsort nao e estavel: sem isso o
+   "ultimo visto" de um produto sairia de um evento qualquer do grupo */
+int comparar_ocorrencias(const void *a, const void *b) {
+  const Ocorrencia *x = a, *y = b;
+
+  if (x->p.id != y->p.id) return x->p.id < y->p.id ? -1 : 1;
+  return x->ordem - y->ordem;
+}
+
+void montar_produto(Produto *p, const Evento *e) {
+  memset(p, 0, sizeof(*p));
+  p->id = e->produto;
+  p->preco = e->preco;
+  p->ativo = '1';
+  memcpy(p->marca, e->marca, TAM_MARCA);
+  memcpy(p->categoria, e->categoria, TAM_CATEGORIA);
+  p->fim = '\n';
+}
+
+int gerar_produtos(void) {
+  Ocorrencia *v;
   Evento e;
-  int total = 0;
+  Produto atual;
+  FILE *f;
+  int n = 0, total = 0, i = 0;
 
-  printf("Produto %d bytes, Acesso %d bytes\n", (int)sizeof(Produto), (int)sizeof(Acesso));
+  v = malloc((size_t)MAX_EVENTOS * sizeof(Ocorrencia));
+  if (v == NULL) return -1;
 
-  csv = abrir_csv();
-  if (csv == NULL) return 1;
-  while (ler_evento(csv, &e)) {
-    if (total < 2 || (total == 999999))
-      printf("  [%.*s] %.*s produto %d usuario %d preco %d marca [%.*s] categoria [%.*s]\n",
-             TAM_HORA, e.hora, TAM_TIPO, e.tipo, e.produto, e.usuario, e.preco,
-             TAM_MARCA, e.marca, TAM_CATEGORIA, e.categoria);
+  f = abrir_csv();
+  if (f == NULL) {
+    free(v);
+    return -1;
+  }
+  while (n < MAX_EVENTOS && ler_evento(f, &e)) {
+    montar_produto(&v[n].p, &e);
+    v[n].ordem = n;
+    n++;
+  }
+  fclose(f);
+
+  qsort(v, (size_t)n, sizeof(Ocorrencia), comparar_ocorrencias);
+
+  /* "wb" e nao "w": em modo texto o Windows converte 0x0A em 0x0D 0x0A e
+     desalinha todos os registros seguintes */
+  f = fopen(ARQ_PRODUTOS, "wb");
+  if (f == NULL) {
+    perror(ARQ_PRODUTOS);
+    free(v);
+    return -1;
+  }
+
+  while (i < n) {
+    atual = v[i].p;
+    for (i++; i < n && v[i].p.id == atual.id; i++) {
+      atual.preco = v[i].p.preco;
+      if (v[i].p.marca[0] != ' ') memcpy(atual.marca, v[i].p.marca, TAM_MARCA);
+    }
+    if (fwrite(&atual, sizeof(Produto), 1, f) != 1) {
+      perror(ARQ_PRODUTOS);
+      fclose(f);
+      free(v);
+      return -1;
+    }
     total++;
   }
-  fclose(csv);
-  printf("%d eventos lidos de %s\n", total, ARQ_CSV);
+  fclose(f);
+  free(v);
+
+  return total;
+}
+
+int total_produtos(FILE *f) {
+  long bytes;
+
+  if (fseek(f, 0, SEEK_END) != 0) return -1;
+  bytes = ftell(f);
+  if (bytes < 0) return -1;
+  return (int)(bytes / (long)sizeof(Produto));
+}
+
+int ler_produto(FILE *f, int i, Produto *destino) {
+  if (fseek(f, (long)i * (long)sizeof(Produto), SEEK_SET) != 0) return 0;
+  return fread(destino, sizeof(Produto), 1, f) == 1;
+}
+
+void imprimir_produto(int i, const Produto *p) {
+  printf("  %6d  %8d  %c  %6d.%02d  %.*s  %.*s\n", i, p->id, p->ativo,
+         p->preco / 100, p->preco % 100, TAM_MARCA, p->marca, TAM_CATEGORIA, p->categoria);
+}
+
+void listar_produtos(FILE *f, int total) {
+  Produto p;
+  char entrada[32];
+  int inicio, quantos, i;
+
+  if (!ler_texto("registro inicial: ", entrada, sizeof(entrada))) return;
+  inicio = atoi(entrada);
+  if (!ler_texto("quantos: ", entrada, sizeof(entrada))) return;
+  quantos = atoi(entrada);
+
+  if (inicio < 0) inicio = 0;
+  if (inicio + quantos > total) quantos = total - inicio;
+
+  for (i = inicio; i < inicio + quantos; i++) {
+    if (!ler_produto(f, i, &p)) return;
+    imprimir_produto(i, &p);
+  }
+}
+
+FILE *abrir_produtos(void) {
+  FILE *f = fopen(ARQ_PRODUTOS, "rb");
+
+  if (f == NULL) {
+    printf("%s nao existe, gerando a partir de %s\n", ARQ_PRODUTOS, ARQ_CSV);
+    if (gerar_produtos() < 0) return NULL;
+    f = fopen(ARQ_PRODUTOS, "rb");
+    if (f == NULL) perror(ARQ_PRODUTOS);
+  }
+  return f;
+}
+
+int main(void) {
+  FILE *produtos;
+  int total;
+
+  produtos = abrir_produtos();
+  if (produtos == NULL) return 1;
+  total = total_produtos(produtos);
+  printf("%s: %d produtos de %d bytes\n", ARQ_PRODUTOS, total, (int)sizeof(Produto));
+
+  listar_produtos(produtos, total);
+  fclose(produtos);
   return 0;
 }
