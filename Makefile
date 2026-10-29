@@ -1,8 +1,14 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -g
 
-ecommerce: ecommerce.c
-	$(CC) $(CFLAGS) -o ecommerce ecommerce.c
+SRCS = src/produtos.c src/main.c
+OBJS = $(SRCS:.c=.o)
+
+ecommerce: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS)
+
+src/%.o: src/%.c src/ecommerce.h
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f ecommerce produtos.bin produtos.idx produtos.ovf acessos.bin acessos.idx
+	rm -f ecommerce $(OBJS)
