@@ -1,38 +1,27 @@
-# Arquivos de dados com índices parciais — e-commerce
+# Índice parcial — produtos de e-commerce
 
-Trabalho 1 de Estrutura de Dados II: arquivos binários de registros de tamanho
-fixo, ordenados pela chave, com um índice parcial por arquivo, como na
-organização sequencial-indexada.
+Arquivo binário de registros de tamanho fixo com índice esparso e cadeias
+encadeadas. Os registros do arquivo principal são divididos em blocos de 51
+posições; cada bloco forma uma cadeia ligada por elos explícitos, e inserções
+vão para uma área de extensão linkada na cadeia correspondente.
 
 ## Dados
 
 Recorte dos primeiros 200 mil eventos (`dados/2019-Oct-200k.csv`) do dataset
-[eCommerce behavior data from multi category store](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store)
-(Kaggle), do qual saem dois arquivos:
+[eCommerce behavior data](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store)
+(Kaggle).
 
-- `produtos.bin`: um registro por produto (chave `product_id`);
-- `acessos.bin`: um registro por evento (view, cart, purchase), com chave
-  sequencial gerada na carga.
+O arquivo `produtos.bin` contém um registro por produto (chave `product_id`,
+80 bytes por registro). Os textos são completados com espaços e cada registro
+termina em `'\n'`.
 
-Os registros têm tamanho fixo, os textos são completados com espaços e cada
-registro termina em `'\n'`.
+## Gerar dados iniciais
 
-## Consultas
+```
+uv run --with pandas python3 scripts/gerar_dados.py
+```
 
-1. Qual a marca mais vendida?
-2. Qual a taxa de conversão de um produto (visualizações, carrinho, compras)?
-3. Qual o faturamento por categoria?
-
-## Funções, para cada arquivo
-
-1. inserir os dados iniciais;
-2. mostrar os dados;
-3. pesquisa binária direto no arquivo de dados;
-4. consulta pelo índice parcial;
-5. inserção;
-6. remoção.
-
-Nenhuma busca carrega o arquivo de dados na memória: só o índice fica em RAM.
+O programa C recria o índice (`.idx`) e a extensão (`.ovf`) automaticamente.
 
 ## Compilar e rodar
 
@@ -40,3 +29,14 @@ Nenhuma busca carrega o arquivo de dados na memória: só o índice fica em RAM.
 make
 ./ecommerce
 ```
+
+## Operações
+
+1. Listar faixa de produtos do arquivo principal
+2. Listar área de extensão
+3. Buscar produto pelo índice esparso
+4. Imprimir índice esparso
+5. Imprimir cadeia de um bloco
+6. Inserir produto
+7. Remover produto (marcação lógica)
+8. Regenerar (percorre cadeias, descarta removidos, refaz elos e índice)
