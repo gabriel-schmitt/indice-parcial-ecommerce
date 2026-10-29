@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera produtos.bin a partir do CSV de eventos.
+"""Gera produtos.bin e acessos.bin a partir do CSV de eventos.
 
 Uso:
     python3 scripts/gerar_dados.py                        # usa o CSV padrao
@@ -17,8 +17,11 @@ from pathlib import Path
 import pandas as pd
 
 SPAN_PRODUTOS = 51
+SPAN_ACESSOS = 73
 TAM_MARCA = 20
 TAM_CATEGORIA = 42
+TAM_TIPO = 11
+TAM_HORA = 19
 
 AREA_PRINCIPAL = 0
 AREA_NENHUMA = 2
@@ -26,6 +29,10 @@ AREA_NENHUMA = 2
 PRODUTO_FMT = "=iiiic20s42sc"
 PRODUTO_TAM = struct.calcsize(PRODUTO_FMT)
 assert PRODUTO_TAM == 80, f"Produto deveria ter 80 bytes, tem {PRODUTO_TAM}"
+
+ACESSO_FMT = "=iiiiiic11s19sc"
+ACESSO_TAM = struct.calcsize(ACESSO_FMT)
+assert ACESSO_TAM == 56, f"Acesso deveria ter 56 bytes, tem {ACESSO_TAM}"
 
 
 def pad(texto, tam):
@@ -90,6 +97,40 @@ def gerar_produtos(df, caminho):
     return total
 
 
+def elo(i, total, span, tam):
+    fim_bloco = min((i // span + 1) * span, total)
+    if i + 1 < fim_bloco:
+        return AREA_PRINCIPAL, (i + 1) * tam
+    return AREA_NENHUMA, -1
+
+
+def gerar_acessos(df, caminho):
+    """Um registro por evento, com id sequencial na ordem do CSV (ja ordenado pela chave)."""
+    total = len(df)
+
+    with open(caminho, "wb") as f:
+        for i, row in enumerate(df.itertuples(index=False)):
+            elo_area, elo_offset = elo(i, total, SPAN_ACESSOS, ACESSO_TAM)
+            f.write(
+                struct.pack(
+                    ACESSO_FMT,
+                    i + 1,
+                    int(row.product_id),
+                    int(row.user_id),
+                    preco_centavos(row.price),
+                    elo_area,
+                    elo_offset,
+                    b"1",
+                    pad(row.event_type, TAM_TIPO),
+                    pad(str(row.event_time)[:TAM_HORA], TAM_HORA),
+                    b"\n",
+                )
+            )
+
+    print(f"  {caminho}: {total} acessos ({ACESSO_TAM} bytes cada)")
+    return total
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gera produtos.bin a partir do CSV")
     parser.add_argument("csv", nargs="?", default="dados/2019-Oct-200k.csv")
@@ -105,7 +146,8 @@ def main():
     print(f"  {len(df)} linhas lidas")
 
     gerar_produtos(df, "produtos.bin")
-    print("pronto (o programa C recria produtos.idx e produtos.ovf ao abrir)")
+    gerar_acessos(df, "acessos.bin")
+    print("pronto (o programa C recria os .idx e os .ovf ao abrir)")
 
 
 if __name__ == "__main__":

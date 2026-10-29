@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -g
 
-SRCS = src/produtos.c src/main.c
+SRCS = src/produtos.c src/acessos.c src/consultas.c src/main.c
 OBJS = $(SRCS:.c=.o)
 
 ecommerce: $(OBJS)

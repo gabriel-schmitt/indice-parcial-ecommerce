@@ -153,7 +153,7 @@ static int criar_indice_produtos(FILE *f, int total, IndiceParcial *ind) {
   return 1;
 }
 
-static int gravar_indice(const IndiceParcial *ind, const char *arq) {
+int gravar_indice(const IndiceParcial *ind, const char *arq) {
   FILE *idx = fopen(arq, "wb");
 
   if (idx == NULL) {
@@ -176,7 +176,7 @@ static int gravar_indice(const IndiceParcial *ind, const char *arq) {
   return 1;
 }
 
-static int ler_indice(const char *arq, int total, int span, IndiceParcial *ind) {
+int ler_indice(const char *arq, int total, int span, IndiceParcial *ind) {
   FILE *idx = fopen(arq, "rb");
   int ok;
 
@@ -233,7 +233,7 @@ static int carregar_indice_produtos(BaseProdutos *b) {
 /* ---------- busca ---------- */
 
 /* ultima entrada cujo id de cabeca e <= id; -1 se o id e menor que a primeira cabeca */
-static int encontrar_bloco(const IndiceParcial *ind, int id, int *comparacoes) {
+int encontrar_bloco(const IndiceParcial *ind, int id, int *comparacoes) {
   int lo = 0, hi = ind->quantidade_entradas - 1, resultado = -1;
 
   *comparacoes = 0;
@@ -283,6 +283,35 @@ int buscar_produto(BaseProdutos *b, int id, int incluir_excluidos, Produto *p, P
   return 0;
 }
 
+/* sem indice: a binaria vale so no principal, que segue ordenado por posicao;
+   a extensao nao tem ordem e e lida em sequencia. 1 achou, 0 nao, -1 erro */
+int buscar_binaria_produto(BaseProdutos *b, int id, Produto *p, Referencia *ref, int *leituras) {
+  int lo = 0, hi = b->total - 1;
+
+  *leituras = 0;
+  while (lo <= hi) {
+    int mid = lo + (hi - lo) / 2;
+
+    if (!ler_produto(b->dados, mid, p)) return -1;
+    (*leituras)++;
+    if (p->id == id) {
+      *ref = ref_principal(mid);
+      return 1;
+    }
+    if (p->id < id) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  for (int i = 0; i < b->total_ext; i++) {
+    if (!ler_produto(b->ext, i, p)) return -1;
+    (*leituras)++;
+    if (p->id == id) {
+      *ref = ref_extensao(i);
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /* o arquivo esta ordenado e dividido em blocos de SPAN_PRODUTOS posicoes:
    cada registro aponta para o seguinte do mesmo bloco, e o ultimo do bloco
    termina a cadeia */
@@ -302,7 +331,7 @@ static int reconstruir_elos(FILE *f, int total) {
 
 /* ---------- abrir e fechar ---------- */
 
-static FILE *abrir_ou_criar(const char *arq) {
+FILE *abrir_ou_criar(const char *arq) {
   FILE *f = fopen(arq, "r+b");
 
   if (f == NULL) f = fopen(arq, "w+b");
@@ -367,7 +396,7 @@ void fechar_base_produtos(BaseProdutos *b) {
 /* ---------- regeneracao ---------- */
 
 /* no Windows o rename falha se o destino ja existe */
-static int substituir_arquivo(const char *origem, const char *destino) {
+int substituir_arquivo(const char *origem, const char *destino) {
   if (rename(origem, destino) == 0) return 1;
   remove(destino);
   return rename(origem, destino) == 0;
